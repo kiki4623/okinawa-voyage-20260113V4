@@ -74,9 +74,9 @@ export const Translator: React.FC = () => {
 
   const recognitionRef = useRef<any>(null);
 
-  // --- 備案語音播放 (Google TTS 引擎) ---
-  // 當手機系統不支援原生語音時，會自動切換到此方法，解決「不支援 Web Speech API」的問題
+  // --- 備案播放功能：解決手機環境不支援 Web Speech API 的問題 ---
   const useFallbackAudio = (text: string, id: string) => {
+    // 使用 Google TTS 引擎作為備案
     const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=ja&client=tw-ob`;
     const audio = new Audio(url);
     
@@ -84,15 +84,18 @@ export const Translator: React.FC = () => {
     audio.onended = () => setIsPlaying(null);
     audio.onerror = () => {
       setIsPlaying(null);
-      alert("抱歉，目前環境無法播放語音，請檢查網路或媒體音量設定。");
+      alert("抱歉，目前裝置環境無法播放語音。");
     };
     
-    audio.play().catch(() => setIsPlaying(null));
+    audio.play().catch(() => {
+      setIsPlaying(null);
+      // 提醒使用者可能需要解除靜音模式
+    });
   };
 
-  // --- 主要發音函式 ---
+  // --- 主要發音邏輯：自動切換原生或備案 ---
   const handlePlayVoice = (text: string, id: string) => {
-    // 優先檢查手機是否支援原生語音 API
+    // 檢查瀏覽器是否支援原生發音且未被封鎖
     if ('speechSynthesis' in window && window.speechSynthesis) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
@@ -101,12 +104,13 @@ export const Translator: React.FC = () => {
       
       utterance.onstart = () => setIsPlaying(id);
       utterance.onend = () => setIsPlaying(null);
-      // 如果原生 API 出錯，立即自動切換到備案音訊
+      
+      // 如果原生 API 在播放時報錯（如 S20 FE 常見的情況），自動切換到備案
       utterance.onerror = () => useFallbackAudio(text, id);
 
       window.speechSynthesis.speak(utterance);
     } else {
-      // 若完全不支援 API，直接使用備案
+      // 完全不支援時直接使用備案
       useFallbackAudio(text, id);
     }
   };
@@ -118,14 +122,16 @@ export const Translator: React.FC = () => {
       const data = await translateText(text, targetLang);
       setResult(data);
     } catch (e: any) {
-      // 偵測是否為 API 金鑰洩漏錯誤 (403 Leaked)
-      const isLeaked = e.message?.includes("leaked") || JSON.stringify(e).includes("leaked");
+      // 捕捉金鑰外洩錯誤並顯示友善訊息
+      const errorMsg = e.message || "";
+      const isLeaked = errorMsg.includes("leaked") || JSON.stringify(e).includes("leaked");
+      
       setResult({ 
         japanese: "Error", 
         romaji: "Error", 
         english: "Error", 
         chinese: isLeaked ? "API 金鑰已被系統封鎖 (Leaked)" : "翻譯發生錯誤",
-        error: e.message 
+        error: errorMsg 
       });
     } finally {
       setLoading(false);
@@ -205,7 +211,7 @@ export const Translator: React.FC = () => {
                 <div className="flex flex-col items-center gap-3 text-red-500">
                   <AlertCircle className="w-10 h-10" />
                   <p className="text-sm font-bold">{result.chinese || '翻譯錯誤'}</p>
-                  <p className="text-[10px] opacity-60">請更新 GitHub Secrets 中的 API Key</p>
+                  <p className="text-[9px] opacity-60 text-center">請更新 GitHub Secrets 中的金鑰</p>
                 </div>
               ) : (
                  <>
@@ -219,7 +225,7 @@ export const Translator: React.FC = () => {
               )}
             </div>
           ) : (
-            <p className="text-xs font-bold text-[#A09E97] italic">點擊下方按鈕或輸入文字進行 AI 翻譯</p>
+            <p className="text-xs font-bold text-[#A09E97] italic">點擊下方按鈕進行 AI 翻譯</p>
           )}
 
           <button 
@@ -227,24 +233,22 @@ export const Translator: React.FC = () => {
             className={`absolute bottom-6 right-6 p-4 rounded-full shadow-lg z-20 ${
               isRecording && recordingTarget === 'partner' 
                 ? 'bg-red-500 text-white animate-pulse' 
-                : 'bg-white text-[#A09E97] border border-[#F0EFEA] hover:text-[#8B1D3D]'
+                : 'bg-white text-[#A09E97] border border-[#F0EFEA]'
             }`}
           >
             {isRecording && recordingTarget === 'partner' ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
           </button>
         </div>
 
-        {/* 切換方向按鈕 */}
         <div className="relative h-[1px] bg-[#F0EFEA] flex items-center justify-center">
           <button 
             onClick={() => setIsFaceToFace(!isFaceToFace)}
-            className="absolute z-30 p-2.5 bg-white border border-[#F0EFEA] rounded-full shadow-sm text-[#A09E97] hover:text-[#8B1D3D] transition-all active:scale-90"
+            className="absolute z-30 p-2.5 bg-white border border-[#F0EFEA] rounded-full shadow-sm text-[#A09E97] active:scale-90 transition-all"
           >
             <RefreshCw className={`w-4 h-4 transition-transform duration-500 ${isFaceToFace ? 'rotate-180' : ''}`} />
           </button>
         </div>
 
-        {/* 使用者輸入區 (User's View) */}
         <div className="flex-1 p-8 flex flex-col justify-between relative">
           <div>
             <div className="flex items-center gap-2.5 mb-6">
@@ -255,7 +259,7 @@ export const Translator: React.FC = () => {
             <div className="relative mb-6">
               <textarea 
                 className="w-full bg-[#F5F4F0] border border-[#F0EFEA] rounded-2xl p-5 text-sm font-bold focus:outline-none focus:border-[#8B1D3D] min-h-[100px] resize-none pr-16"
-                placeholder="輸入中文..."
+                placeholder="輸入中文或使用語音..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
               />
@@ -270,7 +274,6 @@ export const Translator: React.FC = () => {
               </div>
             </div>
 
-            {/* AI 翻譯後的發音按鈕 */}
             {result && !loading && !result.error && (
               <div className="flex justify-end gap-2">
                 <button 
@@ -290,7 +293,6 @@ export const Translator: React.FC = () => {
       <section className="space-y-8">
         <h3 className="text-3xl font-noto-serif font-bold text-[#2D2D2D] px-2">求生日語</h3>
         
-        {/* 分類按鈕 */}
         <div className="flex gap-2.5 overflow-x-auto no-scrollbar pb-2 px-1">
           {Object.keys(COMMON_PHRASES).map(cat => {
             const Icon = COMMON_PHRASES[cat].icon;
@@ -310,7 +312,6 @@ export const Translator: React.FC = () => {
           })}
         </div>
 
-        {/* 常用語清單 */}
         <div className="grid gap-5">
           {COMMON_PHRASES[activeCategory].list.map((phrase, idx) => (
             <div 
@@ -330,6 +331,12 @@ export const Translator: React.FC = () => {
                 >
                   {isPlaying === `phrase-${idx}` ? <Loader2 className="w-5 h-5 animate-spin" /> : <Volume2 className="w-5 h-5" />}
                 </button>
+                <button 
+                   onClick={(e) => { e.stopPropagation(); copyToClipboard(phrase.jp); }}
+                   className="p-3.5 bg-white border border-[#F0EFEA] rounded-full text-[#A09E97] hover:text-[#8B1D3D] transition-all"
+                >
+                  <Copy className="w-4 h-4" />
+                </button>
               </div>
             </div>
           ))}
@@ -338,4 +345,3 @@ export const Translator: React.FC = () => {
     </div>
   );
 };
-
