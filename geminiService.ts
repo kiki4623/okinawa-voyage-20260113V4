@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { DayData, AIInsight, WeatherForecastResponse, WeatherDay, VenueDetails } from "./types";
 
@@ -15,6 +14,14 @@ const LOCATION_COORDS: Record<string, { lat: number; lng: number }> = {
   "北谷": { lat: 26.3155, lng: 127.7651 },
   "豐見城": { lat: 26.1736, lng: 127.6744 },
   "浦添": { lat: 26.2467, lng: 127.7214 }
+};
+
+/**
+ * 核心輔助函數：獲取 API Key
+ * 支援 process.env (Node/Actions 環境) 與 import.meta.env (Vite 瀏覽器環境)
+ */
+const getApiKey = () => {
+  return process.env.API_KEY || (import.meta.env && (import.meta.env.VITE_API_KEY as string)) || "";
 };
 
 const mapWmoToCondition = (code: number): WeatherDay['condition'] => {
@@ -36,8 +43,10 @@ const extractJson = (text: string) => {
   }
 };
 
+// --- API 實作 ---
+
 export const getTravelInsights = async (dayData: DayData): Promise<AIInsight> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const prompt = `你是一位沖繩旅遊專家。旅客目前正在進行第 ${dayData.day} 天的行程：「${dayData.title}」。今日計畫包含：${dayData.events.map(e => e.title).join(', ')}。請提供針對這些活動的氣候建議、在地建議、實用日語及文化知識。語言：繁體中文（台灣）。`;
 
   try {
@@ -69,18 +78,20 @@ export const getTravelInsights = async (dayData: DayData): Promise<AIInsight> =>
   }
 };
 
-export const translateText = async (text: string, targetLang: 'ja' | 'zh' = 'ja'): Promise<{
-  japanese: string;
-  romaji: string;
-  english: string;
-  chinese?: string;
-  error?: string;
-}> => {
-  if (!process.env.API_KEY) {
-    return { japanese: "Key Missing", romaji: "No API Key", english: "Config Error", chinese: "請檢查 GitHub Secret 設定", error: "Missing API Key" };
+export const translateText = async (text: string, targetLang: 'ja' | 'zh' = 'ja') => {
+  const apiKey = getApiKey();
+  
+  if (!apiKey) {
+    return { 
+      japanese: "Key Missing", 
+      romaji: "No API Key", 
+      english: "Config Error", 
+      chinese: "請檢查 GitHub Secret 設定", 
+      error: "Missing API Key" 
+    };
   }
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey });
   let prompt = targetLang === 'ja' 
     ? `將「${text}」翻譯為自然有禮的日語和英語，附上羅馬拼音。回傳 JSON 格式。`
     : `將「${text}」翻譯為道地的繁體中文，附上日文原文和羅馬拼音。回傳 JSON 格式。`;
@@ -118,7 +129,7 @@ export const translateText = async (text: string, targetLang: 'ja' | 'zh' = 'ja'
 
 export const playGeminiTTS = async (text: string, voice: 'Kore' | 'Puck' | 'Zephyr' = 'Kore') => {
   try {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const response = await ai.models.generateContent({
       model: TTS_MODEL,
       contents: [{ parts: [{ text: `請朗讀以下文字，口氣自然：${text}` }] }],
@@ -174,7 +185,7 @@ async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: 
 }
 
 export const getVenueDetails = async (title: string, location: string): Promise<VenueDetails> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const prompt = `請搜尋「${location}」的「${title}」旅遊資訊。以 JSON 格式回傳：phone (字串), about (字串陣列), menuItems (物件陣列: original, translated)。語言：繁體中文（台灣）。`;
   try {
     const response = await ai.models.generateContent({
@@ -204,7 +215,7 @@ export const getWeatherForecast = async (location: string = "那霸"): Promise<W
         description: "預報由 Open-Meteo 提供"
       };
     });
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
     const tipResponse = await ai.models.generateContent({
       model: TEXT_MODEL,
       contents: `這是一份沖繩${location}的一週天氣數據：${JSON.stringify(forecast.slice(0, 3))}。請根據這些氣溫與狀況，給旅客一段簡短、溫馨的穿衣或行程建議（20字內）。語言：繁體中文（台灣）。`,
