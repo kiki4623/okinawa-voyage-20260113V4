@@ -1,0 +1,8 @@
+{
+  "name": "Copy of Okinawa Voyage 20260113V4",
+  "description": "A premium, interactive travel itinerary app for exploring Okinawa, featuring smart insights powered by Gemini AI and a beautiful timeline interface.",
+  "requestFramePermissions": [
+    "geolocation",
+    "microphone"
+  ]
+}
