@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useRef } from 'react';
 import { 
   Send, 
@@ -16,7 +15,7 @@ import {
   Sparkles,
   AlertCircle
 } from 'lucide-react';
-import { translateText, playGeminiTTS } from '../geminiService';
+import { translateText } from '../geminiService'; // 移除了不再使用的 playGeminiTTS
 
 interface Phrase {
   cn: string;
@@ -47,8 +46,8 @@ const COMMON_PHRASES: Record<string, { icon: any, list: Phrase[] }> = {
     icon: Car,
     list: [
       { cn: '這裡可以停車嗎？', jp: 'ここに駐車できますか？', romaji: 'Koko ni chuusha dekimasu ka?' },
-      { cn: '請加滿油。', jp: 'レギュラー滿タンでお願いします。', romaji: 'Regyuraa mantan de onegaishimasu.' },
-      { cn: '要去這裡。', jp: 'ここに行ってください。', romaji: 'Koko ni itte k遂行。' },
+      { cn: '請加滿油。', jp: 'レギュラー満タンでお願いします。', romaji: 'Regyuraa mantan de onegaishimasu.' },
+      { cn: '要去這裡。', jp: 'ここに行ってください。', romaji: 'Koko ni itte kudasai.' }, // 修正了拼音錯誤
       { cn: '還車的地點在哪？', jp: '返却場所はどこですか？', romaji: 'Henkyaku basho wa doko desu ka?' },
     ]
   },
@@ -75,10 +74,25 @@ export const Translator: React.FC = () => {
 
   const recognitionRef = useRef<any>(null);
 
+  // 核心修正：使用瀏覽器原生語音系統
+  const handlePlayVoice = (text: string, id: string) => {
+    // 如果已有其他聲音在播放，先取消
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'ja-JP'; // 設定為日文
+    utterance.rate = 0.9;      // 語速稍微放慢
+
+    utterance.onstart = () => setIsPlaying(id);
+    utterance.onend = () => setIsPlaying(null);
+    utterance.onerror = () => setIsPlaying(null);
+
+    window.speechSynthesis.speak(utterance);
+  };
+
   const handleTranslate = useCallback(async (text: string, targetLang: 'ja' | 'zh' = 'ja') => {
     if (!text.trim() || loading) return;
     setLoading(true);
-    // 翻譯時不一定要清空 result，讓使用者能看到舊的直到新的出來
     try {
       const data = await translateText(text, targetLang);
       setResult(data);
@@ -92,12 +106,6 @@ export const Translator: React.FC = () => {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-  };
-
-  const handlePlayVoice = async (text: string, voice: any = 'Kore', id: string) => {
-    setIsPlaying(id);
-    await playGeminiTTS(text, voice);
-    setIsPlaying(null);
   };
 
   const startVoiceInput = (target: 'me' | 'partner') => {
@@ -132,8 +140,7 @@ export const Translator: React.FC = () => {
       }
     };
 
-    recognition.onerror = (event: any) => {
-      console.error("Recognition error", event.error);
+    recognition.onerror = () => {
       setIsRecording(false);
       setRecordingTarget(null);
     };
@@ -152,7 +159,7 @@ export const Translator: React.FC = () => {
       
       {/* 頂部 AI 翻譯區 */}
       <section className="bg-white rounded-[2.5rem] border border-[#F0EFEA] shadow-sm relative overflow-hidden flex flex-col min-h-[500px]">
-        {/* 對方視角 (Partner's View) - 這裡應該顯示日文 */}
+        {/* 對方視角 (Partner's View) */}
         <div className={`flex-1 p-8 bg-[#8B1D3D]/5 flex flex-col items-center justify-center text-center transition-all duration-500 relative ${isFaceToFace ? 'rotate-180' : ''}`}>
           <div className="mb-4 opacity-40 flex items-center gap-2">
             <FlipHorizontal className="w-3.5 h-3.5" />
@@ -170,11 +177,9 @@ export const Translator: React.FC = () => {
                 <div className="flex flex-col items-center gap-3 text-red-500">
                   <AlertCircle className="w-10 h-10" />
                   <p className="text-sm font-bold">{result.chinese || '翻譯錯誤'}</p>
-                  <p className="text-[10px] opacity-50 break-all">{result.error}</p>
                 </div>
               ) : (
                  <>
-                   {/* 對方視角固定顯示日文 */}
                    <p className="text-3xl font-noto-serif font-black text-[#2D2D2D] leading-tight">
                      {result.japanese}
                    </p>
@@ -215,7 +220,7 @@ export const Translator: React.FC = () => {
           </button>
         </div>
 
-        {/* 使用者輸入與中文顯示區 (User's View) */}
+        {/* 使用者輸入區 */}
         <div className="flex-1 p-8 flex flex-col justify-between relative">
           <div>
             <div className="flex items-center gap-2.5 mb-6">
@@ -223,7 +228,6 @@ export const Translator: React.FC = () => {
               <h2 className="text-lg font-serif font-bold text-[#2D2D2D]">AI 翻譯 (中文 &rarr; 日文)</h2>
             </div>
 
-            {/* 如果有中文翻譯結果（對方說話時），顯示在這裡給使用者看 */}
             {result?.chinese && !loading && !result.error && (
               <div className="mb-6 p-5 bg-[#8B1D3D]/5 rounded-2xl border border-[#8B1D3D]/10 animate-in slide-in-from-top-2">
                 <p className="text-[10px] font-black text-[#8B1D3D] uppercase tracking-widest mb-2 opacity-50">翻譯結果 / Translation</p>
@@ -261,11 +265,10 @@ export const Translator: React.FC = () => {
               </div>
             </div>
 
-            {/* 控制朗讀日文的按鈕 */}
             {result && !loading && !result.error && (
               <div className="flex justify-end gap-2">
                 <button 
-                  onClick={() => handlePlayVoice(result.japanese, 'Kore', 'result')}
+                  onClick={() => handlePlayVoice(result.japanese, 'result')}
                   disabled={isPlaying === 'result'}
                   className="p-2.5 bg-[#8B1D3D]/5 text-[#8B1D3D] rounded-full active:scale-90 transition-all flex items-center gap-2"
                 >
@@ -312,7 +315,7 @@ export const Translator: React.FC = () => {
             <div 
               key={idx}
               className="group flex items-center justify-between p-7 bg-white border border-[#F0EFEA] rounded-[1.5rem] shadow-sm hover:border-[#8B1D3D]/20 transition-all active:scale-[0.99] cursor-pointer"
-              onClick={() => handlePlayVoice(phrase.jp, 'Kore', `phrase-${idx}`)}
+              onClick={() => handlePlayVoice(phrase.jp, `phrase-${idx}`)}
             >
               <div className="flex-1 space-y-1.5">
                 <p className="text-[13px] text-[#8C8C8C] font-noto-serif font-bold leading-relaxed">
@@ -328,7 +331,7 @@ export const Translator: React.FC = () => {
               
               <div className="flex gap-2 ml-4">
                 <button 
-                   onClick={(e) => { e.stopPropagation(); handlePlayVoice(phrase.jp, 'Kore', `phrase-${idx}`); }}
+                   onClick={(e) => { e.stopPropagation(); handlePlayVoice(phrase.jp, `phrase-${idx}`); }}
                    className="p-3.5 bg-[#F5F4F0] rounded-full text-[#A09E97] hover:text-[#8B1D3D] hover:bg-[#8B1D3D]/5 transition-all"
                 >
                   {isPlaying === `phrase-${idx}` ? <Loader2 className="w-5 h-5 animate-spin" /> : <Volume2 className="w-5 h-5" />}
@@ -347,3 +350,4 @@ export const Translator: React.FC = () => {
     </div>
   );
 };
+
