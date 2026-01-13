@@ -47,7 +47,7 @@ const COMMON_PHRASES: Record<string, { icon: any, list: Phrase[] }> = {
     list: [
       { cn: '這裡可以停車嗎？', jp: 'ここに駐車できますか？', romaji: 'Koko ni chuusha dekimasu ka?' },
       { cn: '請加滿油。', jp: 'レギュラー満タンでお願いします。', romaji: 'Regyuraa mantan de onegaishimasu.' },
-      { cn: '要去這裡。', jp: 'ここに行ってください。', romaji: 'Koko ni itte kudasai.' },
+      { cn: '要去這裡。', jp: '這裡に行ってください。', romaji: 'Koko ni itte kudasai.' },
       { cn: '還車的地點在哪？', jp: '返却場所はどこですか？', romaji: 'Henkyaku basho wa doko desu ka?' },
     ]
   },
@@ -74,42 +74,36 @@ export const Translator: React.FC = () => {
 
   const recognitionRef = useRef<any>(null);
 
-  // --- 偵錯版發音函式 ---
+  // --- 備案語音播放 (Google TTS) ---
+  const useFallbackAudio = (text: string, id: string) => {
+    const googleTtsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=ja&client=tw-ob`;
+    const audio = new Audio(googleTtsUrl);
+    
+    setIsPlaying(id);
+    audio.onended = () => setIsPlaying(null);
+    audio.onerror = () => {
+      setIsPlaying(null);
+      alert("抱歉，目前環境無法播放語音，請檢查網路或音量設定。");
+    };
+    
+    audio.play().catch(() => setIsPlaying(null));
+  };
+
+  // --- 主要發音函式 (優先原生，失敗則切換備案) ---
   const handlePlayVoice = (text: string, id: string) => {
-    try {
-      // 偵錯視窗 1：確認有沒有按到按鈕
-      alert("【偵錯】觸發發音，文字內容：" + text);
-
-      if (!window.speechSynthesis) {
-        alert("【偵錯】這支手機瀏覽器不支援 Web Speech API");
-        return;
-      }
-
+    if ('speechSynthesis' in window && window.speechSynthesis) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = 'ja-JP';
       utterance.rate = 0.9;
-
-      utterance.onstart = () => {
-        setIsPlaying(id);
-        // 偵錯視窗 2：確認語音引擎開始跑了
-        console.log("Speech started");
-      };
-
-      utterance.onend = () => {
-        setIsPlaying(null);
-        console.log("Speech ended");
-      };
-
-      utterance.onerror = (event) => {
-        setIsPlaying(null);
-        // 偵錯視窗 3：如果有系統錯誤（例如沒語音包），會跳出代碼
-        alert("【偵錯】語音發生錯誤：" + event.error);
-      };
+      
+      utterance.onstart = () => setIsPlaying(id);
+      utterance.onend = () => setIsPlaying(null);
+      utterance.onerror = () => useFallbackAudio(text, id);
 
       window.speechSynthesis.speak(utterance);
-    } catch (err: any) {
-      alert("【偵錯】執行發生異常：" + err.message);
+    } else {
+      useFallbackAudio(text, id);
     }
   };
 
@@ -120,13 +114,13 @@ export const Translator: React.FC = () => {
       const data = await translateText(text, targetLang);
       setResult(data);
     } catch (e: any) {
-      console.error("Translation fail", e);
-      // 擷取外洩金鑰錯誤資訊
+      // 偵測是否為 API 金鑰洩漏錯誤
+      const isLeaked = e.message?.includes("leaked") || JSON.stringify(e).includes("leaked");
       setResult({ 
         japanese: "Error", 
         romaji: "Error", 
         english: "Error", 
-        chinese: "翻譯發生未預期錯誤", 
+        chinese: isLeaked ? "API 金鑰已被系統停用" : "翻譯發生錯誤",
         error: e.message 
       });
     } finally {
@@ -187,17 +181,7 @@ export const Translator: React.FC = () => {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 space-y-12">
       
-      {/* 偵錯按鈕：用來測試腳本版本是否更新 */}
-      <div className="flex justify-center">
-        <button 
-          onClick={() => alert("腳本已成功更新至：偵錯 Alert 版本")}
-          className="text-[10px] bg-gray-100 px-3 py-1 rounded text-gray-400"
-        >
-          檢查版本
-        </button>
-      </div>
-
-      {/* 頂部 AI 翻譯區 */}
+      {/* AI 翻譯區 */}
       <section className="bg-white rounded-[2.5rem] border border-[#F0EFEA] shadow-sm relative overflow-hidden flex flex-col min-h-[500px]">
         {/* 對方視角 (Partner's View) */}
         <div className={`flex-1 p-8 bg-[#8B1D3D]/5 flex flex-col items-center justify-center text-center transition-all duration-500 relative ${isFaceToFace ? 'rotate-180' : ''}`}>
@@ -217,7 +201,7 @@ export const Translator: React.FC = () => {
                 <div className="flex flex-col items-center gap-3 text-red-500">
                   <AlertCircle className="w-10 h-10" />
                   <p className="text-sm font-bold">{result.chinese || '翻譯錯誤'}</p>
-                  <p className="text-[10px] opacity-60">請檢查 API Key 設定</p>
+                  <p className="text-[10px] opacity-60">請至 GitHub Settings 更新 API Key</p>
                 </div>
               ) : (
                  <>
@@ -231,7 +215,7 @@ export const Translator: React.FC = () => {
               )}
             </div>
           ) : (
-            <p className="text-xs font-bold text-[#A09E97] italic">點擊下方按鈕進行 AI 翻譯</p>
+            <p className="text-xs font-bold text-[#A09E97] italic">點擊下方按鈕進行翻譯</p>
           )}
 
           <button 
@@ -246,7 +230,6 @@ export const Translator: React.FC = () => {
           </button>
         </div>
 
-        {/* 切換按鈕 */}
         <div className="relative h-[1px] bg-[#F0EFEA] flex items-center justify-center">
           <button 
             onClick={() => setIsFaceToFace(!isFaceToFace)}
@@ -256,7 +239,6 @@ export const Translator: React.FC = () => {
           </button>
         </div>
 
-        {/* 使用者輸入區 (User's View) */}
         <div className="flex-1 p-8 flex flex-col justify-between relative">
           <div>
             <div className="flex items-center gap-2.5 mb-6">
