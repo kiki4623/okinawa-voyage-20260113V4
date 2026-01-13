@@ -47,7 +47,7 @@ const COMMON_PHRASES: Record<string, { icon: any, list: Phrase[] }> = {
     list: [
       { cn: '這裡可以停車嗎？', jp: 'ここに駐車できますか？', romaji: 'Koko ni chuusha dekimasu ka?' },
       { cn: '請加滿油。', jp: 'レギュラー満タンでお願いします。', romaji: 'Regyuraa mantan de onegaishimasu.' },
-      { cn: '要去這裡。', jp: '這裡に行ってください。', romaji: 'Koko ni itte kudasai.' },
+      { cn: '要去這裡。', jp: 'ここに行ってください。', romaji: 'Koko ni itte kudasai.' },
       { cn: '還車的地點在哪？', jp: '返却場所はどこですか？', romaji: 'Henkyaku basho wa doko desu ka?' },
     ]
   },
@@ -74,23 +74,25 @@ export const Translator: React.FC = () => {
 
   const recognitionRef = useRef<any>(null);
 
-  // --- 備案語音播放 (Google TTS) ---
+  // --- 備案語音播放 (Google TTS 引擎) ---
+  // 當手機系統不支援原生語音時，會自動切換到此方法，解決「不支援 Web Speech API」的問題
   const useFallbackAudio = (text: string, id: string) => {
-    const googleTtsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=ja&client=tw-ob`;
-    const audio = new Audio(googleTtsUrl);
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=ja&client=tw-ob`;
+    const audio = new Audio(url);
     
     setIsPlaying(id);
     audio.onended = () => setIsPlaying(null);
     audio.onerror = () => {
       setIsPlaying(null);
-      alert("抱歉，目前環境無法播放語音，請檢查網路或音量設定。");
+      alert("抱歉，目前環境無法播放語音，請檢查網路或媒體音量設定。");
     };
     
     audio.play().catch(() => setIsPlaying(null));
   };
 
-  // --- 主要發音函式 (優先原生，失敗則切換備案) ---
+  // --- 主要發音函式 ---
   const handlePlayVoice = (text: string, id: string) => {
+    // 優先檢查手機是否支援原生語音 API
     if ('speechSynthesis' in window && window.speechSynthesis) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
@@ -99,10 +101,12 @@ export const Translator: React.FC = () => {
       
       utterance.onstart = () => setIsPlaying(id);
       utterance.onend = () => setIsPlaying(null);
+      // 如果原生 API 出錯，立即自動切換到備案音訊
       utterance.onerror = () => useFallbackAudio(text, id);
 
       window.speechSynthesis.speak(utterance);
     } else {
+      // 若完全不支援 API，直接使用備案
       useFallbackAudio(text, id);
     }
   };
@@ -114,13 +118,13 @@ export const Translator: React.FC = () => {
       const data = await translateText(text, targetLang);
       setResult(data);
     } catch (e: any) {
-      // 偵測是否為 API 金鑰洩漏錯誤
+      // 偵測是否為 API 金鑰洩漏錯誤 (403 Leaked)
       const isLeaked = e.message?.includes("leaked") || JSON.stringify(e).includes("leaked");
       setResult({ 
         japanese: "Error", 
         romaji: "Error", 
         english: "Error", 
-        chinese: isLeaked ? "API 金鑰已被系統停用" : "翻譯發生錯誤",
+        chinese: isLeaked ? "API 金鑰已被系統封鎖 (Leaked)" : "翻譯發生錯誤",
         error: e.message 
       });
     } finally {
@@ -181,7 +185,7 @@ export const Translator: React.FC = () => {
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-700 pb-20 space-y-12">
       
-      {/* AI 翻譯區 */}
+      {/* 頂部 AI 翻譯區 */}
       <section className="bg-white rounded-[2.5rem] border border-[#F0EFEA] shadow-sm relative overflow-hidden flex flex-col min-h-[500px]">
         {/* 對方視角 (Partner's View) */}
         <div className={`flex-1 p-8 bg-[#8B1D3D]/5 flex flex-col items-center justify-center text-center transition-all duration-500 relative ${isFaceToFace ? 'rotate-180' : ''}`}>
@@ -201,7 +205,7 @@ export const Translator: React.FC = () => {
                 <div className="flex flex-col items-center gap-3 text-red-500">
                   <AlertCircle className="w-10 h-10" />
                   <p className="text-sm font-bold">{result.chinese || '翻譯錯誤'}</p>
-                  <p className="text-[10px] opacity-60">請至 GitHub Settings 更新 API Key</p>
+                  <p className="text-[10px] opacity-60">請更新 GitHub Secrets 中的 API Key</p>
                 </div>
               ) : (
                  <>
@@ -215,7 +219,7 @@ export const Translator: React.FC = () => {
               )}
             </div>
           ) : (
-            <p className="text-xs font-bold text-[#A09E97] italic">點擊下方按鈕進行翻譯</p>
+            <p className="text-xs font-bold text-[#A09E97] italic">點擊下方按鈕或輸入文字進行 AI 翻譯</p>
           )}
 
           <button 
@@ -223,22 +227,24 @@ export const Translator: React.FC = () => {
             className={`absolute bottom-6 right-6 p-4 rounded-full shadow-lg z-20 ${
               isRecording && recordingTarget === 'partner' 
                 ? 'bg-red-500 text-white animate-pulse' 
-                : 'bg-white text-[#A09E97] border border-[#F0EFEA]'
+                : 'bg-white text-[#A09E97] border border-[#F0EFEA] hover:text-[#8B1D3D]'
             }`}
           >
             {isRecording && recordingTarget === 'partner' ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
           </button>
         </div>
 
+        {/* 切換方向按鈕 */}
         <div className="relative h-[1px] bg-[#F0EFEA] flex items-center justify-center">
           <button 
             onClick={() => setIsFaceToFace(!isFaceToFace)}
-            className="absolute z-30 p-2.5 bg-white border border-[#F0EFEA] rounded-full shadow-sm text-[#A09E97]"
+            className="absolute z-30 p-2.5 bg-white border border-[#F0EFEA] rounded-full shadow-sm text-[#A09E97] hover:text-[#8B1D3D] transition-all active:scale-90"
           >
             <RefreshCw className={`w-4 h-4 transition-transform duration-500 ${isFaceToFace ? 'rotate-180' : ''}`} />
           </button>
         </div>
 
+        {/* 使用者輸入區 (User's View) */}
         <div className="flex-1 p-8 flex flex-col justify-between relative">
           <div>
             <div className="flex items-center gap-2.5 mb-6">
@@ -257,18 +263,19 @@ export const Translator: React.FC = () => {
                   <button 
                     onClick={() => handleTranslate(inputText, 'ja')}
                     disabled={loading || !inputText}
-                    className="p-3 bg-[#8B1D3D] text-white rounded-xl shadow-lg disabled:opacity-30"
+                    className="p-3 bg-[#8B1D3D] text-white rounded-xl shadow-lg disabled:opacity-30 active:scale-95 transition-all"
                   >
                     {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                   </button>
               </div>
             </div>
 
+            {/* AI 翻譯後的發音按鈕 */}
             {result && !loading && !result.error && (
               <div className="flex justify-end gap-2">
                 <button 
                   onClick={() => handlePlayVoice(result.japanese, 'result')}
-                  className="p-2.5 bg-[#8B1D3D]/5 text-[#8B1D3D] rounded-full flex items-center gap-2"
+                  className="p-2.5 bg-[#8B1D3D]/5 text-[#8B1D3D] rounded-full active:scale-90 transition-all flex items-center gap-2"
                 >
                   {isPlaying === 'result' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Volume2 className="w-4 h-4" />}
                   <span className="text-[10px] font-bold">朗讀日文</span>
@@ -279,19 +286,21 @@ export const Translator: React.FC = () => {
         </div>
       </section>
 
-      {/* 求生日語手冊 */}
+      {/* 求生日語手冊區塊 */}
       <section className="space-y-8">
         <h3 className="text-3xl font-noto-serif font-bold text-[#2D2D2D] px-2">求生日語</h3>
         
+        {/* 分類按鈕 */}
         <div className="flex gap-2.5 overflow-x-auto no-scrollbar pb-2 px-1">
           {Object.keys(COMMON_PHRASES).map(cat => {
             const Icon = COMMON_PHRASES[cat].icon;
+            const isActive = activeCategory === cat;
             return (
               <button 
                 key={cat}
                 onClick={() => setActiveCategory(cat)}
-                className={`flex items-center gap-2.5 px-6 py-2.5 rounded-full whitespace-nowrap font-bold text-[11px] ${
-                  activeCategory === cat ? 'bg-[#8B1D3D] text-white' : 'bg-white text-[#A09E97] border border-[#F0EFEA]'
+                className={`flex items-center gap-2.5 px-6 py-2.5 rounded-full whitespace-nowrap font-bold text-[11px] transition-all ${
+                  isActive ? 'bg-[#8B1D3D] text-white shadow-md' : 'bg-white text-[#A09E97] border border-[#F0EFEA]'
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
@@ -301,22 +310,23 @@ export const Translator: React.FC = () => {
           })}
         </div>
 
+        {/* 常用語清單 */}
         <div className="grid gap-5">
           {COMMON_PHRASES[activeCategory].list.map((phrase, idx) => (
             <div 
               key={idx}
-              className="group flex items-center justify-between p-7 bg-white border border-[#F0EFEA] rounded-[1.5rem] shadow-sm cursor-pointer"
+              className="group flex items-center justify-between p-7 bg-white border border-[#F0EFEA] rounded-[1.5rem] shadow-sm hover:border-[#8B1D3D]/20 transition-all active:scale-[0.99] cursor-pointer"
               onClick={() => handlePlayVoice(phrase.jp, `phrase-${idx}`)}
             >
               <div className="flex-1 space-y-1.5">
                 <p className="text-[13px] text-[#8C8C8C] font-bold">{phrase.cn}</p>
-                <p className="text-3xl font-noto-serif font-black text-[#2D2D2D] leading-snug">{phrase.jp}</p>
+                <p className="text-3xl font-noto-serif font-black text-[#2D2D2D] leading-snug tracking-tight">{phrase.jp}</p>
                 <p className="text-lg font-cormorant font-bold text-[#B0B0B0] italic">{phrase.romaji}</p>
               </div>
               <div className="flex gap-2 ml-4">
                 <button 
                    onClick={(e) => { e.stopPropagation(); handlePlayVoice(phrase.jp, `phrase-${idx}`); }}
-                   className="p-3.5 bg-[#F5F4F0] rounded-full text-[#A09E97]"
+                   className="p-3.5 bg-[#F5F4F0] rounded-full text-[#A09E97] hover:text-[#8B1D3D] hover:bg-[#8B1D3D]/5 transition-all"
                 >
                   {isPlaying === `phrase-${idx}` ? <Loader2 className="w-5 h-5 animate-spin" /> : <Volume2 className="w-5 h-5" />}
                 </button>
@@ -328,3 +338,4 @@ export const Translator: React.FC = () => {
     </div>
   );
 };
+
