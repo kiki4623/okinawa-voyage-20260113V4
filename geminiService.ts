@@ -1,10 +1,14 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { DayData, AIInsight, WeatherForecastResponse, WeatherDay, VenueDetails } from "./types";
 
-// 使用 2.5 版本通常在發佈環境中更穩定
-const TEXT_MODEL = "gemini-2.5-flash";
-const PRO_MODEL = "gemini-3-pro-image-preview";
-const TTS_MODEL = "gemini-2.5-flash-preview-tts";
+/**
+ * 模型設定
+ * 註：請確認您的方案支援以下模型名稱。
+ * 官方目前穩定版建議為 gemini-1.5-flash 或 gemini-1.5-pro。
+ */
+const TEXT_MODEL = "gemini-1.5-flash"; 
+const PRO_MODEL = "gemini-1.5-pro";
+const TTS_MODEL = "gemini-1.5-flash-preview-tts";
 
 const LOCATION_COORDS: Record<string, { lat: number; lng: number }> = {
   "那霸": { lat: 26.2124, lng: 127.6809 },
@@ -17,12 +21,17 @@ const LOCATION_COORDS: Record<string, { lat: number; lng: number }> = {
 };
 
 /**
- * 核心輔助函數：獲取 API Key
- * 支援 process.env (Node/Actions 環境) 與 import.meta.env (Vite 瀏覽器環境)
+ * 核心修正：獲取 API Key
+ * 在 Vite 環境中，我們統一使用 import.meta.env 讀取。
+ * 配合您 GitHub Actions 中的設定，變數名稱為 VITE_API_KEY。
  */
 const getApiKey = () => {
-  return process.env.API_KEY || (import.meta.env && (import.meta.env.VITE_API_KEY as string)) || "";
+  // 這裡必須與 .github/workflows/deploy.yml 中的 env 名稱一致
+  const key = import.meta.env.VITE_API_KEY; 
+  return (key as string) || "";
 };
+
+// --- 輔助函數 ---
 
 const mapWmoToCondition = (code: number): WeatherDay['condition'] => {
   if (code === 0) return 'Sunny';
@@ -43,10 +52,11 @@ const extractJson = (text: string) => {
   }
 };
 
-// --- API 實作 ---
+// --- API 實作函數 ---
 
 export const getTravelInsights = async (dayData: DayData): Promise<AIInsight> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const apiKey = getApiKey();
+  const ai = new GoogleGenAI({ apiKey });
   const prompt = `你是一位沖繩旅遊專家。旅客目前正在進行第 ${dayData.day} 天的行程：「${dayData.title}」。今日計畫包含：${dayData.events.map(e => e.title).join(', ')}。請提供針對這些活動的氣候建議、在地建議、實用日語及文化知識。語言：繁體中文（台灣）。`;
 
   try {
@@ -69,6 +79,7 @@ export const getTravelInsights = async (dayData: DayData): Promise<AIInsight> =>
     });
     return extractJson(response.text || "{}");
   } catch (error) {
+    console.error("Travel Insights Error:", error);
     return {
       weather: "沖繩一月氣溫約 15-20 度，海風較大。",
       suggestion: "建議隨身攜帶輕便防風外套。",
@@ -82,8 +93,9 @@ export const translateText = async (text: string, targetLang: 'ja' | 'zh' = 'ja'
   const apiKey = getApiKey();
   
   if (!apiKey) {
+    console.warn("API Key is missing. Please check GitHub Secret settings.");
     return { 
-      japanese: "Key Missing", 
+      japanese: "設定錯誤", 
       romaji: "No API Key", 
       english: "Config Error", 
       chinese: "請檢查 GitHub Secret 設定", 
@@ -128,8 +140,11 @@ export const translateText = async (text: string, targetLang: 'ja' | 'zh' = 'ja'
 };
 
 export const playGeminiTTS = async (text: string, voice: 'Kore' | 'Puck' | 'Zephyr' = 'Kore') => {
+  const apiKey = getApiKey();
+  if (!apiKey) return;
+
   try {
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
       model: TTS_MODEL,
       contents: [{ parts: [{ text: `請朗讀以下文字，口氣自然：${text}` }] }],
@@ -185,7 +200,8 @@ async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: 
 }
 
 export const getVenueDetails = async (title: string, location: string): Promise<VenueDetails> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const apiKey = getApiKey();
+  const ai = new GoogleGenAI({ apiKey });
   const prompt = `請搜尋「${location}」的「${title}」旅遊資訊。以 JSON 格式回傳：phone (字串), about (字串陣列), menuItems (物件陣列: original, translated)。語言：繁體中文（台灣）。`;
   try {
     const response = await ai.models.generateContent({
@@ -195,6 +211,7 @@ export const getVenueDetails = async (title: string, location: string): Promise<
     });
     return extractJson(response.text || "{}") || {};
   } catch (e) {
+    console.error("Venue Details Error:", e);
     return {};
   }
 };
@@ -215,11 +232,14 @@ export const getWeatherForecast = async (location: string = "那霸"): Promise<W
         description: "預報由 Open-Meteo 提供"
       };
     });
-    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+
+    const apiKey = getApiKey();
+    const ai = new GoogleGenAI({ apiKey });
     const tipResponse = await ai.models.generateContent({
       model: TEXT_MODEL,
       contents: `這是一份沖繩${location}的一週天氣數據：${JSON.stringify(forecast.slice(0, 3))}。請根據這些氣溫與狀況，給旅客一段簡短、溫馨的穿衣或行程建議（20字內）。語言：繁體中文（台灣）。`,
     });
+    
     return {
       locationName: location,
       forecast: forecast,
@@ -227,6 +247,7 @@ export const getWeatherForecast = async (location: string = "那霸"): Promise<W
       sources: [{ uri: "https://open-meteo.com/", title: "Open-Meteo Weather Data" }]
     };
   } catch (error) {
+    console.error("Weather Forecast Error:", error);
     return {
       locationName: location,
       forecast: [
