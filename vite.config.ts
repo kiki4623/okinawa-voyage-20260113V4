@@ -7,7 +7,7 @@ export default defineConfig(({ mode }) => {
   
   return {
     plugins: [react()],
-    base: './',
+    base: '/kiki4623.github.io/',
     define: {
       // 同時檢查 Vite 載入的變數與 Node 環境變數
       'process.env.API_KEY': JSON.stringify(process.env.VITE_API_KEY || env.VITE_API_KEY || env.API_KEY || ""),
